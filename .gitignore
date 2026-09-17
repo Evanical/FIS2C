@@ -1,0 +1,37 @@
+# Python cache
+__pycache__/
+*.py[cod]
+
+# IDE / system
+.idea/
+.vscode/
+.DS_Store
+
+# Checkpoints and pretrained weights
+*.pt
+*.pth
+*.ckpt
+
+# Training / inference outputs
+checkpoints/
+fisc_checkpoints/
+outputs/
+output/
+results/
+mel_outputs/
+
+# Local ZoME-Bench audio
+data/ZoME-Bench/audio/
+
+# Backup files
+*.bak
+*.bak.*
+*.bak_*
+
+# Logs
+*.log
+eval/.detac_mert_cache/
+data/ZoME-Bench/
+DreamSound/outputs_bouzouki/
+audios/
+train_fisc.py
