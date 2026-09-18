@@ -1,4 +1,4 @@
-# FIS2C-SteerMusic
+# FIS2C
 
 This repository contains the implementation of **FIS2C**, built on top of [SteerMusic](https://arxiv.org/abs/2504.10826) for zero-shot text-guided and personalized music editing.
 
