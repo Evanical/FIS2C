@@ -1,0 +1,29 @@
+{
+  "metadata": "/mnt/westdata/lmy/data/ZoME-Bench/metadata_with_audio_abs.parquet",
+  "task_col": "editing_type_id",
+  "seed": 42,
+  "paper_counts": {
+    "0": 131,
+    "3": 134,
+    "4": 100,
+    "6": 95
+  },
+  "counts": {
+    "total": 1075,
+    "paper460_test": 446,
+    "remaining": 629,
+    "fisc_train": 514,
+    "fisc_val": 115
+  },
+  "paths": {
+    "paper460_test": "/mnt/westdata/lmy/data/ZoME-Bench/splits_strict/paper460_test.parquet",
+    "fisc_train": "/mnt/westdata/lmy/data/ZoME-Bench/splits_strict/fisc_train.parquet",
+    "fisc_val": "/mnt/westdata/lmy/data/ZoME-Bench/splits_strict/fisc_val.parquet",
+    "fisc_trainval_remaining": "/mnt/westdata/lmy/data/ZoME-Bench/splits_strict/fisc_trainval_remaining.parquet"
+  },
+  "no_overlap_checks": {
+    "train_intersection_test": 0,
+    "val_intersection_test": 0,
+    "train_intersection_val": 0
+  }
+}
