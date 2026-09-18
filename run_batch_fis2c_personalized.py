@@ -191,7 +191,7 @@ def main():
     print("[INFO] rows to run:", len(df))
     print("[INFO] output_root:", output_root.resolve())
     print("[INFO] status_path:", status_path.resolve())
-    print("[INFO] script:", args._personalized_script)
+    print("[INFO] script:", fis2c_personalized_script)
     print("[INFO] feedback_mode:", args.feedback_mode)
     print("[INFO] feedback_switch_every_rounds:", args.feedback_switch_every_rounds)
     print("[INFO] feedback_phase_ratio:", args.feedback_phase_ratio)
