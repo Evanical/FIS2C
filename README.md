@@ -212,7 +212,7 @@ cycle_clap_detac_both
 For batch editing:
 
 ```bash
-python run_batch_edit_feedback_schedule.py \
+python run_batch_fis2c_edit.py \
     --metadata /path/to/metadata.parquet \
     --audio_root /path/to/audio \
     --output_root ./outputs/zero_shot \
@@ -281,7 +281,7 @@ To use reference-audio feedback, additionally specify:
 ## Batch Personalized Editing
 
 ```bash
-python run_batch_personalized_feedback_schedule.py \
+python run_batch_fis2c_personalized.py \
     --metadata /path/to/metadata.parquet \
     --audio_root /path/to/audio \
     --output_root ./outputs/personalized \
