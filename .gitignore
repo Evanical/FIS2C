@@ -20,8 +20,6 @@ output/
 results/
 mel_outputs/
 
-# Local ZoME-Bench audio
-data/ZoME-Bench/audio/
 
 # Backup files
 *.bak
@@ -31,7 +29,13 @@ data/ZoME-Bench/audio/
 # Logs
 *.log
 eval/.detac_mert_cache/
-data/ZoME-Bench/
 DreamSound/outputs_bouzouki/
 audios/
 train_fisc.py
+
+# ZoME-Bench: keep metadata/splits, exclude downloaded audio
+data/ZoME-Bench/ZoME-Bench/audio/
+
+data/ZoME-Bench/.git/
+
+
