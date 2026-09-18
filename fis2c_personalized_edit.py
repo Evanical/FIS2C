@@ -118,7 +118,7 @@ def _load_feedback_eval_module(script_path):
             f"feedback evaluator script not found: {script_path}. "
             "Pass --feedback_eval_script to the existing test.py file."
         )
-    spec = importlib.util.spec_from_file_location("_steermusic_feedback_eval", script_path)
+    spec = importlib.util.spec_from_file_location("_fis2c_feedback_eval", script_path)
     if spec is None or spec.loader is None:
         raise ImportError(f"cannot import feedback evaluator: {script_path}")
     module = importlib.util.module_from_spec(spec)
@@ -229,7 +229,7 @@ def make_scheduled_feedback_tensor(
     """
     Build the actual 6-D feedback vector consumed by FISC.
 
-    The expected layout from steermusic_utils.make_feedback_tensor is:
+    The expected layout from fis2c_utils.make_feedback_tensor is:
       [edit, preserve, reference, delta_edit, delta_preserve, delta_reference]
 
     active_mode controls which branch is visible to FISC:
@@ -251,7 +251,7 @@ def make_scheduled_feedback_tensor(
     s_ref_use = _finite_float(s_ref) if keep_detac else 0.0
     reference_mask_use = float(reference_mask) if keep_detac else 0.0
 
-    current_feedback = steermusic_utils.make_feedback_tensor(
+    current_feedback = fis2c_utils.make_feedback_tensor(
         s_edit=s_edit_use,
         s_pres=s_pres_use,
         s_ref=s_ref_use,
@@ -283,7 +283,7 @@ def make_scheduled_feedback_tensor(
 def feedback_selection_score(active_mode, current_feedback, previous_feedback, reference_mask, detac_weight):
     """Best-latent selection score consistent with the active feedback branch."""
     try:
-        over = steermusic_utils.over_edit_penalty(current_feedback, previous_feedback)
+        over = fis2c_utils.over_edit_penalty(current_feedback, previous_feedback)
         over_value = _finite_float(over)
     except Exception:
         over_value = 0.0
@@ -450,15 +450,15 @@ def build_fisc_model(opt):
         print("[INFO] checkpoint FISC audio feature dim:", ckpt_dim)
 
     try:
-        fisc = steermusic_utils.FISCModel(
+        fisc = fis2c_utils.FISCModel(
             lambda_max=opt.lambda_max,
             audio_feature_dim=int(ckpt_dim),
         ).to(DEVICE)
     except TypeError:
         raise TypeError(
-            "The current steermusic_utils.FISCModel does not support "
+            "The current fis2c_utils.FISCModel does not support "
             "the audio_feature_dim argument. Please ensure that "
-            "steermusic_utils.py explicitly initializes the source audio "
+            "fis2c_utils.py explicitly initializes the source audio "
             "projector with a non-LazyLinear layer."
         )
     fisc.audio_feature_dim = int(ckpt_dim)
@@ -527,27 +527,27 @@ def main():
     base_hf_key = opt.audioldm2_path if opt.audioldm2_path else None
 
     if base_hf_key:
-        guidance_model = steermusic_utils.AudioLDM2_pipe(
+        guidance_model = fis2c_utils.AudioLDM2_pipe(
             DEVICE,
             fp16=False,
             vram_O=False,
             hf_key=base_hf_key,
         )
 
-        personalized_model = steermusic_utils.AudioLDM2_pipe(
+        personalized_model = fis2c_utils.AudioLDM2_pipe(
             DEVICE,
             fp16=False,
             vram_O=False,
             hf_key=base_hf_key,
         )
     else:
-        guidance_model = steermusic_utils.AudioLDM2_pipe(
+        guidance_model = fis2c_utils.AudioLDM2_pipe(
             DEVICE,
             fp16=False,
             vram_O=False,
         )
 
-        personalized_model = steermusic_utils.AudioLDM2_pipe(
+        personalized_model = fis2c_utils.AudioLDM2_pipe(
             DEVICE,
             fp16=False,
             vram_O=False,
@@ -639,7 +639,7 @@ def main():
                 opt.ref_audio_path,
                 DEVICE,
             )
-            reference_feature = steermusic_utils.normalize_fisc_audio_feature(
+            reference_feature = fis2c_utils.normalize_fisc_audio_feature(
                 ref_latent.detach(),
                 target_dim=fisc_feature_dim,
             )
@@ -648,7 +648,7 @@ def main():
         else:
             print("[INFO] no --ref_audio_path provided; reference branch disabled")
 
-        source_audio_feature0 = steermusic_utils.normalize_fisc_audio_feature(
+        source_audio_feature0 = fis2c_utils.normalize_fisc_audio_feature(
             source_latent.detach(),
             target_dim=fisc_feature_dim,
         )
@@ -672,7 +672,7 @@ def main():
                 reference_mask=reference_mask,
             )
 
-        steermusic_utils.load_fisc_checkpoint(
+        fis2c_utils.load_fisc_checkpoint(
             fisc,
             opt.fisc_ckpt,
             strict=False,
@@ -715,7 +715,7 @@ def main():
         noise = torch.randn_like(x)
 
         if use_fisc:
-            source_audio_feature = steermusic_utils.normalize_fisc_audio_feature(
+            source_audio_feature = fis2c_utils.normalize_fisc_audio_feature(
                 source_latent.detach(),
                 target_dim=fisc_feature_dim,
             )
@@ -825,7 +825,7 @@ def main():
                 )
             grad = grad + torch.nan_to_num(opt.lambd * w * (noise_pred - noise_pred_phi0))
 
-        loss = steermusic_utils.SpecifyGradient.apply(x, grad)
+        loss = fis2c_utils.SpecifyGradient.apply(x, grad)
         loss.backward()
         optim.step()
         scheduler.step()
