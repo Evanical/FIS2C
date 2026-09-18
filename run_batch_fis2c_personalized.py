@@ -21,7 +21,7 @@ def parse_args():
     parser.add_argument("--personalized_ckpt", type=str, required=True)
     parser.add_argument("--fisc_ckpt", type=str, required=True)
     parser.add_argument("--python_bin", type=str, default=sys.executable)
-    parser.add_argument("--steermusic_personalized_script", type=str, default="./SteerMusic_personalized_ablation_feedback_schedule.py")
+    parser.add_argument("--fis2c_script", type=str, default="./fis2c_personalized_edit.py")
 
     parser.add_argument("--validation_step", type=int, default=500)
     parser.add_argument("--guidance_scale", type=float, default=30.0)
@@ -191,7 +191,7 @@ def main():
     print("[INFO] rows to run:", len(df))
     print("[INFO] output_root:", output_root.resolve())
     print("[INFO] status_path:", status_path.resolve())
-    print("[INFO] script:", args.steermusic_personalized_script)
+    print("[INFO] script:", args._personalized_script)
     print("[INFO] feedback_mode:", args.feedback_mode)
     print("[INFO] feedback_switch_every_rounds:", args.feedback_switch_every_rounds)
     print("[INFO] feedback_phase_ratio:", args.feedback_phase_ratio)
@@ -240,7 +240,7 @@ def main():
                 continue
 
             cmd = [
-                args.python_bin, args.steermusic_personalized_script,
+                args.python_bin, args._personalized_script,
                 "--audio_path", audio_path,
                 "--prompt_ref", source_prompt,
                 "--concept", concept,
