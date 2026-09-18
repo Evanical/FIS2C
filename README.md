@@ -175,7 +175,7 @@ python train_fis2c.py \
 Run a single example with:
 
 ```bash
-python SteerMusic_edit_ablation_alternating.py \
+python fis2c_edit.py \
     --audio_path /path/to/source.wav \
     --prompt_ref "Energetic piano cover with a groovy, reverberant melody." \
     --prompt "Energetic guitar cover with a groovy, reverberant melody." \
@@ -251,7 +251,7 @@ Energetic [piano] cover with a groovy, reverberant melody.
 Run personalized editing with:
 
 ```bash
-python SteerMusic_personalized_ablation_feedback_schedule.py \
+python fis2c_personalized_edit.py \
     --audio_path /path/to/source.wav \
     --prompt_ref "Energetic [piano] cover with a groovy, reverberant melody." \
     --concept bouzouki \
@@ -281,7 +281,7 @@ To use reference-audio feedback, additionally specify:
 ## Batch Personalized Editing
 
 ```bash
-python run_batch_personalized_feedback_schedule_fixed.py \
+python run_batch_personalized_feedback_schedule.py \
     --metadata /path/to/metadata.parquet \
     --audio_root /path/to/audio \
     --output_root ./outputs/personalized \
