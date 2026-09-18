@@ -21,7 +21,7 @@ def parse_args():
     parser.add_argument("--personalized_ckpt", type=str, required=True)
     parser.add_argument("--fisc_ckpt", type=str, required=True)
     parser.add_argument("--python_bin", type=str, default=sys.executable)
-    parser.add_argument("--fis2c_script", type=str, default="./fis2c_personalized_edit.py")
+    parser.add_argument("--fis2c_personalized_script", type=str, default="./fis2c_personalized_edit.py")
 
     parser.add_argument("--validation_step", type=int, default=500)
     parser.add_argument("--guidance_scale", type=float, default=30.0)
