@@ -25,7 +25,7 @@ DEVICE = None
 def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument("--audio_path", type=str, required=True)
-    parser.add_argument("--prompt_ref", type=str, required=True")
+    parser.add_argument("--prompt_ref", type=str, required=True)
     parser.add_argument("--concept", default="", type=str)
     parser.add_argument("--personalized_ckpt", default="", type=str)
     parser.add_argument("--output_dir", default="./FIS2C_output/", type=str)
