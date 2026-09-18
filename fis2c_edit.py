@@ -62,14 +62,13 @@ def parse_args():
         ),
     )
 
-    # 旧脚本参数名 + 新脚本参数名都兼容
+    
     parser.add_argument(
         "--audio_path",
         "--source_audio_path",
         dest="audio_path",
         type=str,
         required=True,
-        help="源音频路径",
     )
     parser.add_argument(
         "--prompt_ref",
@@ -77,7 +76,6 @@ def parse_args():
         dest="prompt_ref",
         type=str,
         required=True,
-        help="源 prompt",
     )
     parser.add_argument(
         "--prompt",
@@ -85,7 +83,6 @@ def parse_args():
         dest="prompt",
         type=str,
         required=True,
-        help="目标 prompt / 编辑指令",
     )
 
     parser.add_argument("--output_dir", default="./FISC_SteerMusic_output/", type=str)
@@ -115,10 +112,7 @@ def parse_args():
 
 
 def normalize_fisc_audio_feature(audio_feature, target_dim=32000, eps=1e-6, detach=True):
-    """
-    将 source/reference audio feature 统一成 [B, target_dim]。
-    放在本文件内，避免依赖 steermusic_utils 里是否有同名函数。
-    """
+
     if audio_feature is None:
         return None
 
@@ -187,10 +181,7 @@ def _load_fisc_state_for_dim(ckpt_path, map_location="cpu"):
 
 
 def infer_fisc_audio_dim_from_ckpt(ckpt_path, fallback_dim=32000):
-    """
-    以 checkpoint 为准推断 FISC audio feature dim。
-    对你的 checkpoint，source_audio_projector.net.0.weight = (512, 32000)，所以返回 32000。
-    """
+
     fallback_dim = int(fallback_dim)
     state = _load_fisc_state_for_dim(ckpt_path, map_location="cpu")
     if not state:
@@ -208,7 +199,7 @@ def infer_fisc_audio_dim_from_ckpt(ckpt_path, fallback_dim=32000):
 
 
 def _first_linear_in_features(module):
-    """返回 module 内第一个已经初始化的 Linear 输入维度。"""
+
     if module is None:
         return None
     for m in module.modules():
@@ -220,10 +211,7 @@ def _first_linear_in_features(module):
 
 
 def get_fisc_audio_feature_dim(fisc, requested_dim):
-    """
-    严格检查 FISC projector 输入维度。
-    修复后不再允许 requested=32000 但 projector=512 的静默兼容。
-    """
+
     requested_dim = int(requested_dim)
     actual_dim = _first_linear_in_features(getattr(fisc, "source_audio_projector", None))
     if actual_dim is None or actual_dim <= 0:
@@ -234,30 +222,23 @@ def get_fisc_audio_feature_dim(fisc, requested_dim):
         raise RuntimeError(
             "FISC audio feature dim mismatch before checkpoint loading: "
             f"requested={requested_dim}, projector_in_features={actual_dim}. "
-            "请确认 steermusic_utils.FISCModel 使用显式 audio_feature_dim 构建，"
-            "不要使用 LazyLinear 自动推断 source_audio_projector 输入维度。"
+            
         )
     return actual_dim
 
 
 def build_fisc_model(opt):
-    """
-    用 checkpoint 中的 projector 输入维度来构建 FISCModel。
-    这样 source_audio_projector.net.0.weight 会直接是 (512, 32000)，不会再变成 (512, 512)。
-    """
     if not hasattr(steermusic_utils, "FISCModel"):
         raise AttributeError(
-            "steermusic_utils 里找不到 FISCModel。请确认你已经把 FISC 代码复制到 steermusic_utils.py，"
-            "或者把 import 改成 steermusic_utils_fisc_v2。"
+            "can't find FISCModel"
         )
 
     ckpt_dim = infer_fisc_audio_dim_from_ckpt(opt.fisc_ckpt, fallback_dim=opt.fisc_audio_feature_dim)
     requested_dim = int(opt.fisc_audio_feature_dim)
     if ckpt_dim != requested_dim:
         print(
-            "[WARN] --fisc_audio_feature_dim 与 checkpoint 不一致："
+            "[WARN] --fisc_audio_feature_dim does not match checkpoint"
             f" requested={requested_dim}, checkpoint_projector_in_features={ckpt_dim}。"
-            f" 本次以 checkpoint 为准使用 {ckpt_dim}。"
         )
     else:
         print("[INFO] checkpoint FISC audio feature dim:", ckpt_dim)
@@ -278,9 +259,7 @@ def build_fisc_model(opt):
         fisc = steermusic_utils.FISCModel(**kwargs).to(opt.device)
     except TypeError:
         raise TypeError(
-            "当前 steermusic_utils.FISCModel 不支持 audio_feature_dim/source_audio_dim/input_dim。\n"
-            "请先替换 steermusic_utils.py：FISCAudioProjector 必须使用 nn.Linear(audio_feature_dim, hidden_dim)，"
-            "不能继续使用 nn.LazyLinear。"
+            "fis2c_utils.FISCModel does not support audio_feature_dim/source_audio_dim/input_dim。\n"
         )
 
     fisc.audio_feature_dim = int(ckpt_dim)
@@ -290,9 +269,7 @@ def build_fisc_model(opt):
 
 
 
-# =============================================================================
-# Feedback-module ablation helpers
-# =============================================================================
+
 
 def _safe_float(x, default=0.0):
     try:
@@ -517,7 +494,6 @@ def main():
         optim.zero_grad()
         x = latent
 
-        # FISC 和 target/source score 共用同一组 t/noise
         t = torch.randint(
             guidance_model.min_step,
             guidance_model.max_step + 1,
@@ -548,8 +524,6 @@ def main():
             c_t_fisc = out["prompt_embeds"]
             c_t_gen_fisc = out["generated_prompt_embeds"]
 
-            # fisc_strength > 1 会放大 FISC 相对原 target prompt 的残差；
-            # 如果听不出区别，可以先试 1.5；如果过编辑，就降回 1.0。
             if float(opt.fisc_strength) != 1.0:
                 c_t_use = c_t + float(opt.fisc_strength) * (c_t_fisc - c_t)
                 c_t_gen_use = c_t_gen + float(opt.fisc_strength) * (c_t_gen_fisc - c_t_gen)
@@ -583,7 +557,7 @@ def main():
                         f"applied_delta_ratio={applied_delta_ratio:.6f}",
                     )
         else:
-            # baseline：完全跳过 FISC，不会进 source_audio_projector
+
             c_t_use = c_t
             c_t_gen_use = c_t_gen
 
@@ -600,7 +574,6 @@ def main():
         )
 
         with torch.no_grad():
-            # source score 保持原始 source condition
             noise_pred_src, _, _ = guidance_model.predict_noise(
                 prompt_embds=c_s,
                 generated_prompt_embds=c_s_gen,
@@ -612,7 +585,7 @@ def main():
                 noise=noise,
             )
 
-        # DDS 梯度公式
+
         w = opt.weight_aug * (1 - guidance_model.alphas[t])
         grad = torch.nan_to_num(float(opt.edit_strength) * w * (noise_pred - noise_pred_src))
         loss = steermusic_utils.SpecifyGradient.apply(x, grad)
