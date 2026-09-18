@@ -24,7 +24,7 @@ def parse_args():
     p.add_argument("--metadata", required=True)
     p.add_argument("--audio_root", default="")
     p.add_argument("--output_root", required=True)
-    p.add_argument("--steermusic_script", default="./fis2c_edit.py")
+    p.add_argument("--fis2c_script", default="./fis2c_edit.py")
     p.add_argument("--fisc_ckpt", required=True)
     p.add_argument("--python_bin", default=sys.executable)
 
