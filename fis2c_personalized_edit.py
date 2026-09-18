@@ -10,10 +10,8 @@ import torch
 from scipy.io.wavfile import write
 from tqdm import tqdm
 
-try:
-    import steermusic_utils as steermusic_utils
-except Exception:
-    import steermusic_utils_fisc_v2 as steermusic_utils
+import fis2c_utils
+
 from preprocessor import Preprocessor
 
 # =========================
@@ -22,28 +20,17 @@ from preprocessor import Preprocessor
 DEVICE = None
 
 
-# =============================================================================
-# FISC-SteerMusic 个性化编辑推理
-# =============================================================================
-# 与原始 SteerMusic_personalized.py 相比：
-#   1. 保留 personalized_model 的 target score。
-#   2. 保留 original model 的 source score。
-#   3. 保留 distribution shift regularization。
-#   4. 新增 FISC target condition compensation：
-#        c_tilde_tgt = c_t + Delta c_inst
-#   5. reference_mask=1，启用 Reference Semantic Adapter A_omega。
-# =============================================================================
 
 
 def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument("--audio_path", type=str, required=True)
-    parser.add_argument("--prompt_ref", type=str, required=True, help="包含 [concept] 的源 prompt")
+    parser.add_argument("--prompt_ref", type=str, required=True")
     parser.add_argument("--concept", default="", type=str)
     parser.add_argument("--personalized_ckpt", default="", type=str)
-    parser.add_argument("--output_dir", default="./FISC_SteerMusicPlus_output/", type=str)
+    parser.add_argument("--output_dir", default="./FIS2C_output/", type=str)
     parser.add_argument("--guidance_scale", default=15.0, type=float)
-    parser.add_argument("--weight_aug", default=2.0, type=float, help="Multiply guidance_scale, consistent with SteerMusic_edit.py")
+    parser.add_argument("--weight_aug", default=2.0, type=float, help="Multiply guidance_scale")
     parser.add_argument("--fisc_strength", default=1.5, type=float, help="Scale FISC prompt compensation residual")
     parser.add_argument("--edit_strength", default=1.5, type=float, help="Scale DDS editing gradient")
     parser.add_argument("--validation_step", default=400, type=int)
@@ -58,7 +45,7 @@ def parse_args():
     )
     parser.add_argument("--lambda_max", default=0.05, type=float)
     parser.add_argument("--fisc_audio_feature_dim", default=32000, type=int)
-    parser.add_argument("--ref_audio_path", default="", type=str, help="真正的 reference audio；为空时关闭 reference 分支")
+    parser.add_argument("--ref_audio_path", default="", type=str)
     parser.add_argument("--config_yaml", default="config/autoencoder/16k_64.yaml", type=str)
     parser.add_argument("--audioldm2_path", default="", type=str, help="Local AudioLDM2 directory for offline loading.")
     parser.add_argument("--feedback_every", default=25, type=int, help="Decode and refresh external feedback every N optimization steps.")
@@ -110,7 +97,7 @@ def parse_args():
 def make_personalized_prompts(prompt_ref, concept):
     match = re.search(r"\[(.*?)\]", prompt_ref)
     if not match:
-        raise ValueError("prompt_ref 必须包含方括号概念，例如 [guitar]")
+        raise ValueError("prompt_ref must contain a concept enclosed in square brackets, e.g., [guitar]")
     prompt = re.sub(r"\[.*?\]", f"sks {concept}", prompt_ref)
     prompt_tgt = re.sub(r"\[.*?\]", f"{concept}", prompt_ref)
     return prompt, prompt_tgt
@@ -454,9 +441,10 @@ def build_fisc_model(opt):
     ckpt_dim = infer_fisc_audio_dim_from_ckpt(opt.fisc_ckpt, fallback_dim=opt.fisc_audio_feature_dim)
     if ckpt_dim != int(opt.fisc_audio_feature_dim):
         print(
-            "[WARN] --fisc_audio_feature_dim 与 checkpoint 不一致："
-            f" requested={opt.fisc_audio_feature_dim}, checkpoint_projector_in_features={ckpt_dim}。"
-            f" 本次以 checkpoint 为准使用 {ckpt_dim}。"
+            "[WARN] --fisc_audio_feature_dim does not match the checkpoint: "
+            f"requested={opt.fisc_audio_feature_dim}, "
+            f"checkpoint_projector_in_features={ckpt_dim}. "
+            f"Using the checkpoint dimension ({ckpt_dim}) for this run."
         )
     else:
         print("[INFO] checkpoint FISC audio feature dim:", ckpt_dim)
@@ -468,8 +456,10 @@ def build_fisc_model(opt):
         ).to(DEVICE)
     except TypeError:
         raise TypeError(
-            "当前 steermusic_utils.FISCModel 不支持 audio_feature_dim。"
-            "请替换 steermusic_utils.py，禁止 source_audio_projector 使用 LazyLinear。"
+            "The current steermusic_utils.FISCModel does not support "
+            "the audio_feature_dim argument. Please ensure that "
+            "steermusic_utils.py explicitly initializes the source audio "
+            "projector with a non-LazyLinear layer."
         )
     fisc.audio_feature_dim = int(ckpt_dim)
     return fisc, int(ckpt_dim)
@@ -714,7 +704,7 @@ def main():
         optim.zero_grad()
         x = latent
 
-        # 中文注释：训练时 FISC 看到真实 diffusion timestep；推理时也必须保持一致。
+        
         t = torch.randint(
             personalized_model.min_step,
             personalized_model.max_step + 1,
@@ -821,7 +811,7 @@ def main():
         grad = opt.edit_strength * torch.nan_to_num(w * (noise_pred - noise_pred_src))
 
         if opt.add_reg:
-            # 中文注释：保留 SteerMusic+ 的 distribution shift regularization。
+            
             with torch.no_grad():
                 noise_pred_phi0, _, _ = guidance_model.predict_noise(
                     prompt_embds=c_t_plain,
