@@ -12,30 +12,13 @@ import steermusic_utils as steermusic_utils
 from preprocessor import Preprocessor
 
 
-# =============================================================================
-# 使用 ZoME-Bench 训练 FISC-SteerMusic 新增模块
-# =============================================================================
-# 本脚本训练改进方案中设计的网络：
-#   1. SourceAudioProjector：源音频特征投影 W_s
-#   2. ReferenceAudioProjector：参考音频特征投影 W_r
-#   3. ReferenceSemanticAdapter A_omega：CrossAttention(Q=c_t,K=e_r,V=e_r)
-#   4. PromptCompensationNetwork P_phi：2-layer Transformer Adapter
-#   5. FeedbackGate G_psi：3-layer MLP + sigmoid
-#
-# 冻结部分：
-#   AudioLDM2、VAE、U-Net、text encoder、SteerMusic DDS 主体。
-#
-# 重要说明：
-#   ZoME-Bench 通常只公开 prompt/metadata，不直接打包 wav。
-#   你需要先根据 metadata 中的 YouTube 信息下载并裁剪音频，
-#   然后用 --audio_root 指向音频所在目录。
-# =============================================================================
+
 
 
 def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument("--metadata", type=str, required=True, help="ZoME-Bench metadata_with_audio.parquet/csv/json/jsonl")
-    parser.add_argument("--audio_root", type=str, default="", help="本地裁剪后的音频目录；当 audio_path 是相对路径时会用它拼接")
+    parser.add_argument("--audio_root", type=str, default="")
     parser.add_argument("--output_dir", type=str, default="./fisc_checkpoints")
     parser.add_argument("--device", type=str, default="cuda:0")
     parser.add_argument("--epochs", type=int, default=3)
@@ -59,14 +42,12 @@ def parse_args():
         help="Scale used by the differentiable score-level structural reward during training.",
     )
     parser.add_argument("--save_every", type=int, default=500)
-    # 中文注释：你的 metadata_with_audio.parquet 字段通常是：
     # original_prompt / editing_prompt / editing_instruction / audio_path。
-    # 因此这里默认直接使用已下载音频的 audio_path。
     parser.add_argument("--source_prompt_key", type=str, default="original_prompt")
     parser.add_argument("--target_prompt_key", type=str, default="editing_prompt")
     parser.add_argument("--audio_key", type=str, default="audio_path")
-    parser.add_argument("--allow_missing_audio", action="store_true", help="允许缺失音频的行进入训练循环；默认会在训练前过滤")
-    parser.add_argument("--min_audio_size", type=int, default=1024, help="音频文件最小字节数，用于过滤空/损坏文件")
+    parser.add_argument("--allow_missing_audio", action="store_true")
+    parser.add_argument("--min_audio_size", type=int, default=1024)
     parser.add_argument("--config_yaml", type=str, default="config/autoencoder/16k_64.yaml")
     parser.add_argument(
         "--fisc_audio_feature_dim",
@@ -78,8 +59,6 @@ def parse_args():
 
 
 def read_metadata(path):
-    # 中文注释：读取 ZoME-Bench 的 metadata，兼容 parquet / csv / json / jsonl。
-    # ZoME-Bench 在 Hugging Face 上常见格式是 .parquet，所以这里新增 parquet 支持。
     path = Path(path)
     suffix = path.suffix.lower()
 
@@ -88,10 +67,9 @@ def read_metadata(path):
             import pandas as pd
         except ImportError as exc:
             raise ImportError(
-                "读取 .parquet 需要 pandas 和 pyarrow，请先运行：pip install pandas pyarrow"
+                "pip install pandas pyarrow"
             ) from exc
         df = pd.read_parquet(path)
-        # 中文注释：把 pandas 的 NaN 转成空字符串，避免后续字段判断出错。
         df = df.fillna("")
         return df.to_dict("records")
 
@@ -108,10 +86,9 @@ def read_metadata(path):
             obj = json.load(f)
         return obj if isinstance(obj, list) else obj.get("data", [])
 
-    raise ValueError(f"不支持的 metadata 格式: {path}")
+    raise ValueError(f"Do not support metadata: {path}")
 
 def pick_field(row, explicit_key, candidates):
-    # 中文注释：兼容不同 ZoME-Bench metadata 字段名。
     if explicit_key:
         return row.get(explicit_key, "")
     for key in candidates:
@@ -121,7 +98,6 @@ def pick_field(row, explicit_key, candidates):
 
 
 def _to_int_string(x):
-    # 中文注释：把 30.0 / "30.0" 统一转成 "30"，用于拼接下载脚本生成的文件名。
     try:
         return str(int(float(x)))
     except Exception:
@@ -129,15 +105,6 @@ def _to_int_string(x):
 
 
 def resolve_audio_path(audio_root, audio_value, row=None, min_audio_size=1024):
-    """
-    中文注释：将 metadata 中的 audio_path/文件名/ytid 映射到本地音频路径。
-
-    适配你刚下载好的 ZoME-Bench 音频：
-    - 优先读取 metadata_with_audio.parquet 里的 audio_path；
-    - audio_path 可以是绝对路径，也可以是相对路径；
-    - 如果没有 audio_path，但有 ytid/start_s/end_s，则尝试在 audio_root 下找
-      {ytid}_{start_s}_{end_s}.wav。
-    """
     candidates = []
 
     if audio_value not in [None, ""]:
@@ -175,10 +142,6 @@ def resolve_audio_path(audio_root, audio_value, row=None, min_audio_size=1024):
 
 
 def prepare_training_rows(rows, opt):
-    """
-    中文注释：训练前先把 prompt 和 audio_path 解析好，并过滤无效样本。
-    这样可以确认脚本确实在使用你下载好的 wav 文件。
-    """
     prepared = []
     missing_source = 0
     missing_target = 0
@@ -221,17 +184,17 @@ def prepare_training_rows(rows, opt):
             new_row["_audio_path"] = audio_path
             prepared.append(new_row)
 
-    print("[INFO] metadata 原始行数:", len(rows))
-    print("[INFO] 可用于训练的行数:", len(prepared))
-    print("[INFO] 缺 source prompt 行数:", missing_source)
-    print("[INFO] 缺 target prompt 行数:", missing_target)
-    print("[INFO] 缺 audio_path/音频文件 行数:", missing_audio)
+    print("[INFO] Tatal metadata rows:", len(rows))
+    print("[INFO] Rows available for training:", len(prepared))
+    print("[INFO] Rows missing source prompt:", missing_source)
+    print("[INFO] Rows missing target prompt:", missing_target)
+    print("[INFO] Rows missing audio_path:", missing_audio)
 
     if prepared:
         ex = prepared[0]
-        print("[INFO] 样例 source_prompt:", str(ex["_source_prompt"])[:120])
-        print("[INFO] 样例 target_prompt:", str(ex["_target_prompt"])[:120])
-        print("[INFO] 样例 audio_path:", ex["_audio_path"])
+        print("[INFO]  source_prompt:", str(ex["_source_prompt"])[:120])
+        print("[INFO]  target_prompt:", str(ex["_target_prompt"])[:120])
+        print("[INFO]  audio_path:", ex["_audio_path"])
 
     return prepared
 
@@ -584,9 +547,8 @@ def main():
 
     if not rows:
         raise RuntimeError(
-            "没有找到可用样本。请确认 --metadata 指向 metadata_with_audio.parquet，"
-            "并且 audio_path 文件真实存在。"
-        )
+            "Ensure --metadata is metadata_with_audio.parquet，"
+            )
 
     config = yaml.load(open(opt.config_yaml, "r"), Loader=yaml.FullLoader)
     preprocessor = Preprocessor(config)
@@ -603,7 +565,7 @@ def main():
             break
 
     if first is None:
-        raise RuntimeError("没有找到可用样本，请检查 metadata 字段名、audio_path 和 --audio_root。")
+        raise RuntimeError("Ensure metadata, audio_path, --audio_root。")
 
     log_mel_spec, _, _, _ = preprocessor.read_audio_file(filename=first[0])
     log_mel_spec = log_mel_spec.unsqueeze(0).unsqueeze(0).to(opt.device)
@@ -611,7 +573,6 @@ def main():
         source_latent = guidance_model.encode_audio(log_mel_spec)
     warmup_fisc(fisc, guidance_model, first[1], first[2], source_latent, opt.device, feature_dim=opt.fisc_audio_feature_dim)
 
-    # 中文注释：optimizer 只训练 FISC 新增模块参数。
     optimizer = torch.optim.AdamW(fisc.parameters(), lr=opt.lr, weight_decay=1e-4)
 
     global_step = 0
