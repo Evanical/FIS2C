@@ -8,35 +8,10 @@ import torch.nn.functional as F
 from scipy.io.wavfile import write
 from tqdm import tqdm
 
-# 兼容两种情况：
-# 1) 你继续使用 steermusic_utils.py，并且已经把 FISC v2 代码复制进去了；
-# 2) 你保留 steermusic_utils_fisc_v2.py。
-try:
-    import steermusic_utils as steermusic_utils
-except Exception:
-    import steermusic_utils_fisc_v2 as steermusic_utils
+import fis2c_utils
 
 from preprocessor import Preprocessor
 
-
-# =============================================================================
-# FISC-SteerMusic 普通文本编辑推理
-#
-# 这版修复：
-# 1. argparse 同时支持旧参数名和新参数名：
-#      --audio_path / --source_audio_path
-#      --prompt_ref / --source_prompt
-#      --prompt / --target_prompt
-# 2. 增加 --fisc_audio_feature_dim，避免 unrecognized arguments。
-# 3. baseline 模式下彻底跳过 FISC：
-#      --fisc_ckpt "" 或 --lambda_max 0
-#    这时不会再进入 source_audio_projector，因此不会出现 32000 vs 4736 维度错误。
-# 4. FISC 模式下自动检测 source_audio_projector 的真实输入维度。
-#    如果模型内部 projector 仍然是 4736，就自动把 audio feature 处理到 4736；
-#    如果模型已正确初始化为 32000，就使用 32000。
-# 5. FISC 和 predict_noise 共用同一个 diffusion timestep/noise。
-# 6. 本版额外新增 --fisc_strength 和 --edit_strength，方便增强弱编辑。
-# =============================================================================
 
 
 def parse_args():
