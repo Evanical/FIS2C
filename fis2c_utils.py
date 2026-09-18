@@ -50,25 +50,7 @@ logger = logging.get_logger(__name__)
 
 
 class SpecifyGradient(torch.autograd.Function):
-    """
-    This code defines a custom gradient function using PyTorch's `torch.autograd.Function` class. It is particularly helpful when you want to manipulate gradients manually in a deep learning model that relies on automatic differentiation. The class is called `SpecifyGradient`, and contains two essential methods: `forward` and `backward`.
-
-1. The `@staticmethod` decorator indicates that these are static methods and can be called on the class itself, without instantiating an object from the class.
-
-2. The `forward` method takes two input arguments: `ctx` and `input_tensor`. `ctx` is a context object used to store information needed for backward computation. `input_tensor` is the input tensor to this layer in the neural network. The purpose of this method is to compute the forward pass and store any required information for the backward pass.
-
-3. The `@custom_fwd` decorator is a user-defined decorator (not provided here) which presumably wraps or modifies the forward method in some way, most likely to add functionality like logging, error checking or other custom behavior.
-
-4. Inside the `forward` method, the ground truth gradient `gt_grad` is saved using `ctx.save_for_backward()`. This stored information will be used later in the backward function. The forward function then returns a tensor of ones with the same device and data type as the input tensor. This tensor will be used in the backward pass as a scaling factor to adjust the gradients.
-
-5. The `backward` method takes two input arguments: `ctx` and `grad_scale`. `ctx` is the same context object used in the forward pass. `grad_scale` is the gradient scaling factor used to adjust the gradients. The purpose of this method is to compute the gradient updates with respect to the input during backpropagation. 
-
-6. The `@custom_bwd` decorator is another user-defined decorator (not provided here) which performs a similar role for the backward method as the `@custom_fwd` decorator does for the forward method.
-
-7. Inside the `backward` method, the ground truth gradient `gt_grad` is retrieved from the saved tensors. It is then scaled by multiplying it with `grad_scale`. The method returns the scaled gradient `gt_grad` and `None`. The `None` value is returned because there are no gradients to compute for `gt_grad` with respect to the input tensor – it is assumed to be an external property that doesn't require gradient computation.
-
-This custom gradient function can be used in situations where you need to have fine-grained control over the gradients in a neural network. For example, if you want to perform gradient clipping or apply noise to the gradients, you would use this `SpecifyGradient` function in place of a standard PyTorch layer.
-    """
+    
     @staticmethod
     @custom_fwd
     def forward(ctx, input_tensor, gt_grad):
@@ -511,32 +493,10 @@ class AudioLDM2_pipe(nn.Module):
         return latents
 
   
-# =============================================================================
-# FISC-SteerMusic 新增代码：反馈引导的指令语义补偿模块
-# =============================================================================
-# 该部分是根据“研究方案改进建议”加入的网络构建。
-# 核心原则：
-#   1. 不修改 AudioLDM2 backbone。
-#   2. 不修改 SteerMusic 的 DDS/PDS 主公式。
-#   3. 只在 target text condition 进入 denoiser 之前加入残差补偿：
-#          c_tilde_tgt = c_t + Delta c_inst
-#   4. 训练时只训练新增模块：
-#          SourceAudioProjector, ReferenceAudioProjector,
-#          ReferenceSemanticAdapter A_omega,
-#          PromptCompensationNetwork P_phi,
-#          FeedbackGate G_psi
-# =============================================================================
 
 
 class FISCAudioProjector(nn.Module):
-    """源音频/参考音频投影器。
 
-    关键修复：不要再用 nn.LazyLinear 自动推断输入维度。
-    你的 FISC checkpoint 中 source_audio_projector.net.0.weight 是 (512, 32000)，
-    所以推理时必须显式构建 Linear(32000, 512)。否则第一次 forward 如果吃到
-    512 维特征，LazyLinear 会把 projector 固化成 (512, 512)，随后加载 checkpoint
-    就会触发 (512, 32000) -> (512, 512) 的错误 resize。
-    """
     def __init__(self, hidden_dim=512, audio_feature_dim=32000):
         super().__init__()
         self.hidden_dim = int(hidden_dim)
@@ -550,7 +510,7 @@ class FISCAudioProjector(nn.Module):
         )
 
     def forward(self, audio_feature):
-        # 中文注释：将 [B,C,T,F] 或其他形状的音频特征展平成 [B,D]。
+        
         if audio_feature is None:
             return None
         if audio_feature.dim() == 1:
@@ -558,8 +518,7 @@ class FISCAudioProjector(nn.Module):
         if audio_feature.dim() > 2:
             audio_feature = audio_feature.flatten(1)
 
-        # 双保险：即使调用方忘了 normalize_fisc_audio_feature，也在 projector 内部
-        # pad/truncate 到 checkpoint 训练时的固定维度。
+       
         current_dim = int(audio_feature.shape[1])
         target_dim = int(self.audio_feature_dim)
         if current_dim < target_dim:
@@ -571,15 +530,7 @@ class FISCAudioProjector(nn.Module):
 
 
 class FISCReferenceSemanticAdapter(nn.Module):
-    """Reference Semantic Adapter A_omega。
-
-    方案对应：
-        r^k = CrossAttn(Q=c_t, K=e_r, V=e_r)
-
-    作用：
-        target instruction 作为 query，从 reference audio feature 中选择
-        和当前编辑目标相关的个性化音色/风格/空间感，而不是直接拼接全部参考信息。
-    """
+    
     def __init__(self, hidden_dim=512, num_heads=8, dropout=0.1):
         super().__init__()
         self.attn = nn.MultiheadAttention(hidden_dim, num_heads, dropout=dropout, batch_first=True)
@@ -593,7 +544,7 @@ class FISCReferenceSemanticAdapter(nn.Module):
         self.norm2 = nn.LayerNorm(hidden_dim)
 
     def forward(self, target_token, reference_token, reference_mask=0.0):
-        # 中文注释：非个性化模式 m_r=0，reference 分支关闭。
+        
         if reference_token is None or float(reference_mask) == 0.0:
             return torch.zeros_like(target_token)
         q = target_token.unsqueeze(1)
@@ -607,20 +558,7 @@ class FISCReferenceSemanticAdapter(nn.Module):
 
 
 class FISCPromptCompensator(nn.Module):
-    """Prompt Compensation Network P_phi + Feedback Gate G_psi。
-
-    方案对应：
-        Delta c_inst^k(t)
-          = lambda^k(t) * P_phi(c_t, c_s, c_a, m_r e_r, tau_t, F^{k-1})
-
-        c_tilde_tgt^k(t)
-          = c_t + Delta c_inst^k(t)
-
-    网络结构：
-        P_phi：2-layer Transformer Adapter
-        G_psi：3-layer MLP + sigmoid
-        A_omega：ReferenceSemanticAdapter，个性化模式启用
-    """
+    
     def __init__(
         self,
         hidden_dim=512,
@@ -637,18 +575,18 @@ class FISCPromptCompensator(nn.Module):
         self.time_dim = time_dim
         self.lambda_max = lambda_max
 
-        # 中文注释：将所有条件映射到统一 hidden_dim。
-        self.ct_proj = nn.LazyLinear(hidden_dim)     # c_t，目标文本
-        self.cs_proj = nn.LazyLinear(hidden_dim)     # c_s，源文本
-        self.ca_proj = nn.LazyLinear(hidden_dim)     # c_a，源音频
-        self.er_proj = nn.LazyLinear(hidden_dim)     # e_r，参考音频
+        
+        self.ct_proj = nn.LazyLinear(hidden_dim)     
+        self.cs_proj = nn.LazyLinear(hidden_dim)    
+        self.ca_proj = nn.LazyLinear(hidden_dim)     
+        self.er_proj = nn.LazyLinear(hidden_dim)     
         self.fb_proj = nn.Linear(feedback_dim, hidden_dim)
         self.time_proj = nn.Linear(time_dim, hidden_dim)
 
-        # 中文注释：A_omega，target text query 从 reference audio 中检索相关语义。
+        
         self.ref_adapter = FISCReferenceSemanticAdapter(hidden_dim, num_heads, dropout)
 
-        # 中文注释：P_phi，轻量 Transformer Adapter。
+        
         encoder_layer = nn.TransformerEncoderLayer(
             d_model=hidden_dim,
             nhead=num_heads,
@@ -661,7 +599,7 @@ class FISCPromptCompensator(nn.Module):
         self.transformer = nn.TransformerEncoder(encoder_layer, num_layers=num_layers)
         self.out_norm = nn.LayerNorm(hidden_dim)
 
-        # 中文注释：G_psi，输入 F^{k-1}, tau_t, m_r，输出补偿强度 lambda。
+        
         self.gate = nn.Sequential(
             nn.Linear(feedback_dim + time_dim + 1, hidden_dim),
             nn.GELU(),
@@ -670,13 +608,12 @@ class FISCPromptCompensator(nn.Module):
             nn.Linear(hidden_dim // 2, 1),
         )
 
-        # 中文注释：由于 AudioLDM2 的两个 text condition 维度可能不同，
-        # 这里使用 LazyLinear 自动适配输出维度。
+       
         self.delta_to_text = nn.LazyLinear(1)
 
     @staticmethod
     def _pool(x):
-        # 中文注释：把文本序列 [B,L,D] 池化成 [B,D] 条件 token。
+        
         if x is None:
             return None
         if x.dim() == 3:
@@ -697,7 +634,7 @@ class FISCPromptCompensator(nn.Module):
 
     @staticmethod
     def _time_embed(t, dim, device, dtype):
-        # 中文注释：用 timestep embedding 近似 h_t，避免侵入 U-Net 内部。
+       
         if t is None:
             t = torch.zeros(1, device=device)
         if not torch.is_tensor(t):
@@ -711,7 +648,7 @@ class FISCPromptCompensator(nn.Module):
         return emb.to(dtype=dtype)
 
     def _make_delta_layer_if_needed(self, text_dim, device, dtype):
-        # 中文注释：第一次 forward 时创建输出层，并零初始化，使未训练时不改变原模型。
+        
         if isinstance(self.delta_to_text, nn.LazyLinear):
             self.delta_to_text = nn.Linear(self.hidden_dim, text_dim).to(device=device, dtype=dtype)
             nn.init.zeros_(self.delta_to_text.weight)
@@ -751,32 +688,31 @@ class FISCPromptCompensator(nn.Module):
         tau = self._expand(tau, batch_size)
         mr = torch.full((batch_size, 1), float(reference_mask), device=device, dtype=dtype)
 
-        # 中文注释：reference semantic adapter 输出 r^k。
+       
         r = self.ref_adapter(ct, er, reference_mask=reference_mask)
 
-        # 中文注释：P_phi 输入 token：Z=[c_t,c_s,c_a,r^k,F,tau_t]。
+        
         tokens = torch.stack([ct, cs, ca, r, self.fb_proj(feedback), self.time_proj(tau)], dim=1)
         h = self.transformer(tokens)
         h_tgt = self.out_norm(h[:, 0])
 
         self._make_delta_layer_if_needed(text_dim, device, dtype)
 
-        # 中文注释：生成 Delta c_inst 的方向。
-        # 重要：这里不再允许 delta_vec 无限制放大，否则 FISC 很容易学成“过编辑放大器”。
+       
         delta_vec = self.delta_to_text(h_tgt)
         delta_vec = F.layer_norm(delta_vec, delta_vec.shape[-1:])
         delta_vec = torch.clamp(delta_vec, min=-3.0, max=3.0)
         delta_vec = torch.nan_to_num(delta_vec, nan=0.0, posinf=0.0, neginf=0.0)
 
-        # 中文注释：G_psi 生成 lambda，并用 lambda_max 限制最大补偿幅度。
+        
         lam = self.lambda_max * torch.sigmoid(self.gate(torch.cat([feedback, tau, mr], dim=-1)))
         lam = torch.nan_to_num(lam, nan=0.0, posinf=self.lambda_max, neginf=0.0)
 
-        # 中文注释：将 Delta c_inst 广播到所有 text token。
+       
         delta = (lam[:, None, :] * delta_vec[:, None, :]).expand(batch_size, seq_len, text_dim)
         delta = torch.nan_to_num(delta, nan=0.0, posinf=0.0, neginf=0.0)
 
-        # 中文注释：CFG 下只修改 conditional 分支，不修改 unconditional 分支。
+       
         if apply_to_cond_only and batch_size >= 2:
             mask = torch.zeros(batch_size, 1, 1, device=device, dtype=dtype)
             mask[batch_size // 2:] = 1.0
@@ -786,7 +722,7 @@ class FISCPromptCompensator(nn.Module):
 
 
 class FISCModel(nn.Module):
-    """完整 FISC 模型，包含改进方案中的所有新增网络。"""
+    
     def __init__(
         self,
         hidden_dim=512,
@@ -797,7 +733,7 @@ class FISCModel(nn.Module):
     ):
         super().__init__()
 
-        # 兼容不同脚本里可能使用的参数名。最终只保留一个固定维度。
+        
         if source_audio_dim is not None:
             audio_feature_dim = source_audio_dim
         if input_dim is not None:
@@ -807,19 +743,19 @@ class FISCModel(nn.Module):
         self.audio_feature_dim = int(audio_feature_dim)
         self.lambda_max = float(lambda_max)
 
-        # 中文注释：源音频编码投影，对应 c_a = W_s a_s。
+       
         self.source_audio_projector = FISCAudioProjector(
             hidden_dim=self.hidden_dim,
             audio_feature_dim=self.audio_feature_dim,
         )
 
-        # 中文注释：参考音频编码投影，对应 e_r = W_r E_r(x_r)。
+       
         self.reference_audio_projector = FISCAudioProjector(
             hidden_dim=self.hidden_dim,
             audio_feature_dim=self.audio_feature_dim,
         )
 
-        # 中文注释：AudioLDM2 有两个文本条件流，需要分别补偿。
+        
         self.prompt_comp = FISCPromptCompensator(hidden_dim=self.hidden_dim, lambda_max=lambda_max)
         self.generated_comp = FISCPromptCompensator(hidden_dim=self.hidden_dim, lambda_max=lambda_max)
 
@@ -849,7 +785,7 @@ class FISCModel(nn.Module):
             target_generated_embeds, source_generated_embeds, ca, feedback, timestep, er, reference_mask
         )
 
-        # 中文注释：L_reg = ||Delta c_inst||^2。
+        
         reg = delta_prompt.pow(2).mean() + delta_generated.pow(2).mean()
 
         return {
@@ -864,7 +800,7 @@ class FISCModel(nn.Module):
 
 
 def make_feedback_tensor(s_edit, s_pres, s_ref=0.0, prev_feedback=None, reference_mask=0.0, device=None, dtype=torch.float32):
-    """构造连续反馈向量 F^k。"""
+   
     if prev_feedback is None:
         d_edit, d_pres, d_ref = 0.0, 0.0, 0.0
     else:
@@ -880,18 +816,18 @@ def make_feedback_tensor(s_edit, s_pres, s_ref=0.0, prev_feedback=None, referenc
 
 
 def latent_preservation_score(current_latent, source_latent):
-    """源保持代理分数。正式实验可替换为 CQT1-PCC + TAC_q。"""
+    
     return F.cosine_similarity(current_latent.flatten(1), source_latent.flatten(1), dim=-1).mean()
 
 
 def noise_edit_score(noise_pred_tgt, noise_pred_src):
-    """编辑达成代理分数。正式实验可替换为 CLAP audio-text similarity。"""
+    
     diff = noise_pred_tgt - noise_pred_src
     return torch.tanh(diff.flatten(1).norm(dim=1).mean() / 100.0)
 
 
 def over_edit_penalty(current_feedback, previous_feedback, eps=0.01):
-    """过编辑惩罚 L_over。"""
+    
     if previous_feedback is None:
         return torch.tensor(0.0, device=current_feedback.device, dtype=current_feedback.dtype)
     pres_drop = torch.relu(previous_feedback[1] - current_feedback[1])
@@ -908,7 +844,7 @@ def save_fisc_checkpoint(fisc_model, path, extra=None):
 
 
 def _strip_fisc_prefix_if_needed(state):
-    """兼容 module. / fisc. 前缀。"""
+    
     clean = {}
     for k, v in state.items():
         if k.startswith("module."):
@@ -965,7 +901,7 @@ def load_fisc_checkpoint(fisc_model, ckpt_path, strict=False, map_location="cpu"
     state = _strip_fisc_prefix_if_needed(state)
     model_state = fisc_model.state_dict()
 
-    # 关键检查：audio projector 不允许 32000 -> 512 静默 resize。
+   
     for key in [
         "source_audio_projector.net.0.weight",
         "reference_audio_projector.net.0.weight",
@@ -976,7 +912,7 @@ def load_fisc_checkpoint(fisc_model, ckpt_path, strict=False, map_location="cpu"
         ckpt_shape = _safe_shape(state[key])
         model_shape = _safe_shape(model_state[key])
 
-        # checkpoint 里如果是未初始化 Lazy 参数，跳过检查，不要访问 .shape 崩溃
+        
         if ckpt_shape is None or model_shape is None:
             print(f"[WARN] skip projector strict shape check for uninitialized tensor: {key}")
             continue
@@ -992,9 +928,6 @@ def load_fisc_checkpoint(fisc_model, ckpt_path, strict=False, map_location="cpu"
                 f"  current model shape: {model_shape}\n"
                 f"  current model audio_feature_dim: {getattr(fisc_model, 'audio_feature_dim', None)}\n"
                 f"  current projector in_features: {model_dim}\n"
-                "请用 checkpoint 的输入维度构建 FISCModel，例如：\n"
-                "  FISCModel(lambda_max=..., audio_feature_dim=32000)\n"
-                "不要再对 projector 权重做 resize。"
             )
 
     filtered_state = {}
@@ -1041,7 +974,7 @@ def load_fisc_checkpoint(fisc_model, ckpt_path, strict=False, map_location="cpu"
     return fisc_model
 
 def _strip_fisc_prefix_if_needed(state):
-    """兼容 {'fisc': state_dict}、'module.' 前缀，以及 'fisc.' 前缀。"""
+    
     clean = {}
     for k, v in state.items():
         if k.startswith("module."):
@@ -1081,8 +1014,7 @@ def load_fisc_checkpoint(fisc_model, ckpt_path, strict=False, map_location="cpu"
     state = _strip_fisc_prefix_if_needed(state)
     model_state = fisc_model.state_dict()
 
-    # 最关键的检查：这两个 projector 不允许自动 resize。只要不一致就直接报错，
-    # 防止把 (512, 32000) 静默裁成 (512, 512)，导致实验结果失真。
+   
     projector_keys = [
         "source_audio_projector.net.0.weight",
         "reference_audio_projector.net.0.weight",
@@ -1102,9 +1034,7 @@ def load_fisc_checkpoint(fisc_model, ckpt_path, strict=False, map_location="cpu"
                     f"  current model shape: {model_shape}\n"
                     f"  current model audio_feature_dim: {getattr(fisc_model, 'audio_feature_dim', None)}\n"
                     f"  current projector in_features: {model_dim}\n"
-                    "请用 checkpoint 的输入维度构建 FISCModel，例如：\n"
-                    "  FISCModel(lambda_max=..., audio_feature_dim=32000)\n"
-                    "不要再对 projector 权重做 resize。"
+                    
                 )
 
     filtered_state = {}
@@ -1188,13 +1118,7 @@ def _dimfix_first_linear_in_features(module):
 
 
 def load_fisc_checkpoint(fisc_model, ckpt_path, strict=False, map_location="cpu"):
-    """
-    Safe FISC checkpoint loader.
-
-    1. 不再 resize source/reference audio projector 权重。
-    2. 如果 checkpoint 里有 LazyLinear 未初始化参数，直接跳过。
-    3. source_audio_projector 必须保持 checkpoint 的 32000 输入维度。
-    """
+    
     import torch
 
     ckpt = torch.load(ckpt_path, map_location=map_location)
