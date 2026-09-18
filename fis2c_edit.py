@@ -85,7 +85,7 @@ def parse_args():
         required=True,
     )
 
-    parser.add_argument("--output_dir", default="./FISC_SteerMusic_output/", type=str)
+    parser.add_argument("--output_dir", default="./FISC_fis2c_output/", type=str)
     parser.add_argument("--validation_step", default=400, type=int)
     parser.add_argument("--guidance_scale", default=30.0, type=float)
     parser.add_argument("--weight_aug", default=2.0, type=float)
@@ -228,7 +228,7 @@ def get_fisc_audio_feature_dim(fisc, requested_dim):
 
 
 def build_fisc_model(opt):
-    if not hasattr(steermusic_utils, "FISCModel"):
+    if not hasattr(fis2c_utils, "FISCModel"):
         raise AttributeError(
             "can't find FISCModel"
         )
@@ -245,7 +245,7 @@ def build_fisc_model(opt):
 
     kwargs = {"lambda_max": opt.lambda_max}
     try:
-        sig = inspect.signature(steermusic_utils.FISCModel.__init__)
+        sig = inspect.signature(fis2c_utils.FISCModel.__init__)
         if "audio_feature_dim" in sig.parameters:
             kwargs["audio_feature_dim"] = ckpt_dim
         elif "source_audio_dim" in sig.parameters:
@@ -256,7 +256,7 @@ def build_fisc_model(opt):
         pass
 
     try:
-        fisc = steermusic_utils.FISCModel(**kwargs).to(opt.device)
+        fisc = fis2c_utils.FISCModel(**kwargs).to(opt.device)
     except TypeError:
         raise TypeError(
             "fis2c_utils.FISCModel does not support audio_feature_dim/source_audio_dim/input_dim。\n"
@@ -338,7 +338,7 @@ def make_ablation_feedback_tensor(mode, s_edit, s_pres, previous_feedback, devic
     """
     Build the 6-D feedback vector consumed by FISC.
 
-    Layout assumed by steermusic_utils.make_feedback_tensor:
+    Layout assumed by fis2c_utils.make_feedback_tensor:
       [edit, preserve, reference, delta_edit, delta_preserve, delta_reference]
 
     Active branches:
@@ -357,7 +357,7 @@ def make_ablation_feedback_tensor(mode, s_edit, s_pres, previous_feedback, devic
     s_edit_value = _safe_float(s_edit) if keep_edit else 0.0
     s_pres_value = _safe_float(s_pres) if keep_pres else 0.0
 
-    current_feedback = steermusic_utils.make_feedback_tensor(
+    current_feedback = fis2c_utils.make_feedback_tensor(
         s_edit=s_edit_value,
         s_pres=s_pres_value,
         s_ref=0.0,
@@ -383,7 +383,7 @@ def make_ablation_feedback_tensor(mode, s_edit, s_pres, previous_feedback, devic
 def best_latent_selection_score(mode, s_edit, s_pres, current_feedback, previous_feedback):
     """Use the same active branches to select best_latent for each ablation."""
     try:
-        over = steermusic_utils.over_edit_penalty(current_feedback, previous_feedback)
+        over = fis2c_utils.over_edit_penalty(current_feedback, previous_feedback)
         over_value = _safe_float(over)
     except Exception:
         over_value = 0.0
@@ -422,7 +422,7 @@ def main():
     config = yaml.load(open(opt.config_yaml, "r"), Loader=yaml.FullLoader)
     preprocessor = Preprocessor(config)
 
-    guidance_model = steermusic_utils.AudioLDM2_pipe(
+    guidance_model = fis2c_utils.AudioLDM2_pipe(
         opt.device,
         fp16=False,
         vram_O=False,
@@ -450,7 +450,7 @@ def main():
         fisc.eval()
         print("[INFO] effective FISC audio feature dim:", fisc_feature_dim)
 
-        # warmup 创建 text-side LazyLinear 参数；audio projector 已经是显式 32000 维，不再由 LazyLinear 推断。
+        
         feedback0 = torch.zeros(6, device=opt.device, dtype=source_latent.dtype)
         t0 = torch.tensor([guidance_model.min_step], device=opt.device, dtype=torch.long)
         with torch.no_grad():
@@ -470,15 +470,15 @@ def main():
                 reference_mask=0.0,
             )
 
-        # warmup 后再加载 checkpoint
-        steermusic_utils.load_fisc_checkpoint(
+        
+        fis2c_utils.load_fisc_checkpoint(
             fisc,
             opt.fisc_ckpt,
             strict=False,
             map_location=opt.device,
         )
 
-        # 加载 checkpoint 后再次检测一次，确认没有发生 32000 -> 512 的错误。
+        
         fisc_feature_dim = get_fisc_audio_feature_dim(fisc, fisc_feature_dim)
         print("[INFO] effective FISC audio feature dim after ckpt:", fisc_feature_dim)
 
@@ -588,7 +588,7 @@ def main():
 
         w = opt.weight_aug * (1 - guidance_model.alphas[t])
         grad = torch.nan_to_num(float(opt.edit_strength) * w * (noise_pred - noise_pred_src))
-        loss = steermusic_utils.SpecifyGradient.apply(x, grad)
+        loss = fis2c_utils.SpecifyGradient.apply(x, grad)
         loss.backward()
         optim.step()
         scheduler.step()
@@ -597,8 +597,8 @@ def main():
         # This is the part that makes only_clap vs clap_detac actually different:
         # the next FISC forward pass receives different feedback dimensions.
         with torch.no_grad():
-            s_edit = steermusic_utils.noise_edit_score(noise_pred, noise_pred_src)
-            s_pres = steermusic_utils.latent_preservation_score(latent, source_latent)
+            s_edit = fis2c_utils.noise_edit_score(noise_pred, noise_pred_src)
+            s_pres = fis2c_utils.latent_preservation_score(latent, source_latent)
 
             active_feedback_mode = resolve_active_feedback_mode(
                 schedule_mode=opt.feedback_mode,
