@@ -766,7 +766,7 @@ def build_manifest_from_batch_outputs(
 ) -> pd.DataFrame:
     root = Path(batch_output_root).resolve()
     if not root.exists():
-        raise FileNotFoundError(f"batch_output_root 不存在: {root}")
+        raise FileNotFoundError(f"batch_output_root does not exit: {root}")
 
     status_files = find_status_files(root, batch_status)
     print("[INFO] batch_output_root:", root)
@@ -864,7 +864,7 @@ class CLAPScorer:
             self.checkpoint_path = os.path.join(checkpoint_dir, checkpoint_name)
 
             if not Path(self.checkpoint_path).exists():
-                raise FileNotFoundError(f"CLAP checkpoint 不存在: {self.checkpoint_path}")
+                raise FileNotFoundError(f"CLAP checkpoint does not exist: {self.checkpoint_path}")
 
             self.model = CLAPTextConsistencyMetric(
                 model_path=self.checkpoint_path,
@@ -1403,7 +1403,7 @@ def prepare_fad_audio_dirs(df: pd.DataFrame, out_csv: Path, args):
         n += 1
 
     if n == 0:
-        raise RuntimeError("FAD 没有找到可用音频对，无法计算。")
+        raise RuntimeError("FAD NaN。")
 
     return root, src_dir, edt_dir, n
 
@@ -1494,7 +1494,7 @@ def load_manifest(path: Path, limit: Optional[int]) -> pd.DataFrame:
 
     for col in ["source_audio", "edited_audio"]:
         if col not in df.columns:
-            raise RuntimeError(f"manifest 缺少列 {col}; 当前列: {df.columns.tolist()}")
+            raise RuntimeError(f"manifest does not have {col}; 当前列: {df.columns.tolist()}")
 
     df = df[df["source_audio"].apply(safe_exists) & df["edited_audio"].apply(safe_exists)].copy()
 
@@ -1520,7 +1520,7 @@ def summarize(df: pd.DataFrame, out_summary: Path):
         if pd.api.types.is_numeric_dtype(df[c]) and c not in {"index", "returncode"}
     ]
     if not numeric_cols:
-        print("[WARN] 没有数值列可汇总")
+        print("[WARN] NaN")
         return
 
     summary = df[numeric_cols].agg(["count", "mean", "std", "min", "median", "max"]).T
@@ -1531,7 +1531,7 @@ def summarize(df: pd.DataFrame, out_summary: Path):
 
     all_nan_cols = [c for c in numeric_cols if df[c].isna().all()]
     if all_nan_cols:
-        print("[WARN] 以下数值列全是 NaN，summary 中已保留但 mean 无效:", all_nan_cols)
+        print("[WARN] NaN", all_nan_cols)
 
     # Save per-metric status counts for quick debugging.
     status_cols = [c for c in df.columns if c.endswith("_status")]
@@ -1645,10 +1645,8 @@ def main():
 
         if df.empty:
             raise RuntimeError(
-                "从 batch 输出中没有找到可评估样本。建议加上："
                 "--metadata /mnt/westdata/lmy/data/ZoME-Bench/metadata_with_audio_abs.parquet "
                 "--audio_root /mnt/westdata/lmy/data/ZoME-Bench/audio。"
-                "同时检查 output 子目录下是否有 *_fisc_best.wav。"
             )
 
         save_manifest = Path(args.save_manifest) if args.save_manifest else out_csv.with_name(out_csv.stem + "_manifest.csv")
@@ -1658,7 +1656,7 @@ def main():
     elif args.manifest:
         df = load_manifest(Path(args.manifest), args.limit)
     else:
-        raise RuntimeError("必须提供 --manifest 或 --batch_output_root")
+        raise RuntimeError(" --manifest 或 --batch_output_root")
 
     print("[INFO] rows:", len(df))
     print("[INFO] metrics:", args.metrics)
