@@ -24,7 +24,7 @@ def parse_args():
     p.add_argument("--metadata", required=True)
     p.add_argument("--audio_root", default="")
     p.add_argument("--output_root", required=True)
-    p.add_argument("--steermusic_script", default="./SteerMusic_edit_ablation_alternating.py")
+    p.add_argument("--steermusic_script", default="./fis2c_edit.py")
     p.add_argument("--fisc_ckpt", required=True)
     p.add_argument("--python_bin", default=sys.executable)
 
@@ -262,7 +262,7 @@ def main():
 
             cmd = [
                 args.python_bin,
-                args.steermusic_script,
+                args.fis2c_script,
                 "--audio_path", audio_path,
                 "--prompt_ref", source_prompt,
                 "--prompt", target_prompt,
