@@ -8,7 +8,7 @@ import torch
 import yaml
 from tqdm import tqdm
 
-import steermusic_utils as steermusic_utils
+import fis2c_utils
 from preprocessor import Preprocessor
 
 
@@ -53,7 +53,6 @@ def parse_args():
         "--fisc_audio_feature_dim",
         type=int,
         default=32000,
-        help="FISC source_audio_projector 期望的输入维度；当前 steermusic_utils.py 中通常是 32000",
     )
     return parser.parse_args()
 
@@ -184,7 +183,7 @@ def prepare_training_rows(rows, opt):
             new_row["_audio_path"] = audio_path
             prepared.append(new_row)
 
-    print("[INFO] Tatal metadata rows:", len(rows))
+    print("[INFO] Total metadata rows:", len(rows))
     print("[INFO] Rows available for training:", len(prepared))
     print("[INFO] Rows missing source prompt:", missing_source)
     print("[INFO] Rows missing target prompt:", missing_target)
@@ -200,14 +199,7 @@ def prepare_training_rows(rows, opt):
 
 
 def normalize_fisc_audio_feature(audio_feature, target_dim=32000):
-    """
-    Compatibility wrapper.
-
-    The real implementation lives in steermusic_utils_fisc_v2.py so training
-    and inference always use exactly the same flatten/pad/truncate/normalize
-    logic for FISC audio features.
-    """
-    return steermusic_utils.normalize_fisc_audio_feature(
+    return fis2c_utils.normalize_fisc_audio_feature(
         audio_feature,
         target_dim=target_dim,
         detach=True,
@@ -215,12 +207,12 @@ def normalize_fisc_audio_feature(audio_feature, target_dim=32000):
 
 
 def build_model(device, lambda_max):
-    guidance_model = steermusic_utils.AudioLDM2_pipe(device, fp16=False, vram_O=False, t_range=[0.02, 0.98])
+    guidance_model = fis2c_utils.AudioLDM2_pipe(device, fp16=False, vram_O=False, t_range=[0.02, 0.98])
     guidance_model.eval()
     for p in guidance_model.parameters():
         p.requires_grad = False
 
-    fisc = steermusic_utils.FISCModel(lambda_max=lambda_max).to(device)
+    fisc = fis2c_utils.FISCModel(lambda_max=lambda_max).to(device)
     fisc.train()
     return guidance_model, fisc
 
@@ -234,7 +226,7 @@ def warmup_fisc(fisc, guidance_model, source_prompt, target_prompt, source_laten
     # Actual training feedback is computed from the uncompensated base state.
     feedback0 = torch.zeros(6, device=device, dtype=source_latent.dtype)
     t0 = torch.tensor([guidance_model.min_step], device=device, dtype=torch.long)
-    source_audio_feature = steermusic_utils.normalize_fisc_audio_feature(source_latent.detach(), target_dim=feature_dim)
+    source_audio_feature = fis2c_utils.normalize_fisc_audio_feature(source_latent.detach(), target_dim=feature_dim)
     _ = fisc(c_t, c_t_gen, c_s, c_s_gen, source_audio_feature, feedback0, t0)
 
 
@@ -330,7 +322,7 @@ def train_one_sample(row, opt, guidance_model, fisc, preprocessor, optimizer, gl
     )
     noise = torch.randn_like(source_latent)
 
-    source_audio_feature = steermusic_utils.normalize_fisc_audio_feature(
+    source_audio_feature = fis2c_utils.normalize_fisc_audio_feature(
         source_latent.detach(),
         target_dim=opt.fisc_audio_feature_dim,
     )
@@ -379,7 +371,7 @@ def train_one_sample(row, opt, guidance_model, fisc, preprocessor, optimizer, gl
         # F_base = [r_sem, r_str, r_ref, delta_sem, delta_str, delta_ref].
         # There is no previous feedback round during single-step training,
         # therefore the delta components are initialized to zero.
-        F_base = steermusic_utils.make_feedback_tensor(
+        F_base = fis2c_utils.make_feedback_tensor(
             s_edit=float(r_sem_base.cpu()),
             s_pres=float(r_str_base.cpu()),
             s_ref=0.0,
@@ -494,7 +486,7 @@ def train_one_sample(row, opt, guidance_model, fisc, preprocessor, optimizer, gl
     )
 
     # Detached F_FIS2C is kept only for logging / inspection.
-    F_fis2c = steermusic_utils.make_feedback_tensor(
+    F_fis2c = fis2c_utils.make_feedback_tensor(
         s_edit=float(r_sem_fis2c.detach().cpu()),
         s_pres=float(r_str_fis2c.detach().cpu()),
         s_ref=0.0,
@@ -587,11 +579,11 @@ def main():
 
             if global_step % opt.save_every == 0:
                 ckpt_path = os.path.join(opt.output_dir, f"fisc_step_{global_step}.pt")
-                steermusic_utils.save_fisc_checkpoint(fisc, ckpt_path, extra={"global_step": global_step, "epoch": epoch})
+                fis2c_utils.save_fisc_checkpoint(fisc, ckpt_path, extra={"global_step": global_step, "epoch": epoch})
                 print(f"[INFO] saved {ckpt_path}")
 
     final_path = os.path.join(opt.output_dir, "fisc_final.pt")
-    steermusic_utils.save_fisc_checkpoint(fisc, final_path, extra={"global_step": global_step, "epochs": opt.epochs})
+    fis2c_utils.save_fisc_checkpoint(fisc, final_path, extra={"global_step": global_step, "epochs": opt.epochs})
     print(f"[INFO] training finished, saved {final_path}")
 
 
